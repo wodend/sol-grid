@@ -1,5 +1,8 @@
+pub mod vox;
+
 use std::marker::PhantomData;
 use std::ops::Range;
+use std::slice::ChunksExact;
 
 pub trait Codec {
     const SIZE: u8;
@@ -93,6 +96,18 @@ where
             .and_then(|size| size.checked_mul(height as usize))
     }
 
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
     pub fn get(&self, x: u32, y: u32, z: u32) -> &T {
         match self.indices(x, y, z) {
             None => panic!(
@@ -129,11 +144,63 @@ where
         let min_index = unsized_index as usize * <T>::SIZE as usize;
         min_index..min_index + <T>::SIZE as usize
     }
+
+    pub fn enumerate_cells(&self) -> EnumerateCells<T> {
+        EnumerateCells {
+            chunks: self
+                .data
+                .chunks_exact(<T>::SIZE as usize),
+            x: 0,
+            y: 0,
+            z: 0,
+            width: self.width,
+            depth: self.depth,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn cell_count(&self) -> usize {
+        self.width as usize * self.depth as usize * self.height as usize
+    }
 }
+
+pub struct EnumerateCells<'a, T> {
+    chunks: ChunksExact<'a, u8>,
+    x: u32,
+    y: u32,
+    z: u32,
+    width: u32,
+    depth: u32,
+    _phantom: PhantomData<T>,
+}
+
+impl<'a, T> Iterator for EnumerateCells<'a, T>
+where
+    T: Codec + 'a,
+{
+    type Item = (u32, u32, u32, &'a T);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.x >= self.width {
+            self.x = 0;
+            self.y += 1;
+        }
+        if self.y >= self.depth {
+            self.y = 0;
+            self.z += 1;
+        }
+        let (x, y, z) = (self.x, self.y, self.z);
+        self.x += 1;
+        self.chunks.next().map(|t| (x, y, z, <T>::from_slice(t)))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_u32_as_slice() {
@@ -245,5 +312,62 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_grid_enumerate_cells() {
+        let grid_width = 3;
+        let grid_depth = 3; 
+        let grid_height = 3;
+        let mut grid = Grid::new(grid_width, grid_depth, grid_height);
+        for x in 0..grid_width {
+            for y in 0..grid_depth {
+                for z in 0..grid_height {
+                    let color = [x as u8, y as u8, z as u8, 255];
+                    let voxel = Voxel::from_rgba(&color);
+                    *grid.get_mut(x, y, z) = voxel;
+                }
+            }
+        }
+        for (x, y, z, v) in grid.enumerate_cells() {
+            let rgba = v.as_rgba();
+            assert_eq!(x as u8, rgba[0]);
+            assert_eq!(y as u8, rgba[1]);
+            assert_eq!(z as u8, rgba[2]);
+        }
+    }
+
+    #[test]
+    fn test_grid_cell_count() {
+        let grid_width = 3;
+        let grid_depth = 3; 
+        let grid_height = 3;
+        let grid = Grid::<u32>::new(grid_width, grid_depth, grid_height);
+        assert_eq!(grid.cell_count(), 27);
+    }
+
+    #[test]
+    fn test_vox_write() {
+        let grid_width = 3;
+        let grid_depth = 3; 
+        let grid_height = 3;
+        let mut grid = Grid::new(grid_width, grid_depth, grid_height);
+        let black = [0, 0, 0, 255];
+        let white = [255, 255, 255, 255];
+        let voxel_black = Voxel::from_rgba(&black);
+        let voxel_white = Voxel::from_rgba(&white);
+        for x in 0..grid_width {
+            for y in 0..grid_depth {
+                for z in 0..grid_height {
+                    if z == 0 {
+                        *grid.get_mut(x, y, z) = voxel_black;
+                    } else {
+                        *grid.get_mut(x, y, z) = voxel_white;
+                    }
+                }
+            }
+        }
+        let bytes = vox::encode(grid).unwrap();
+        fs::write("test.vox", &bytes).unwrap();
     }
 }

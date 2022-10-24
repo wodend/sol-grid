@@ -1,4 +1,6 @@
-use sol_grid::{Grid, Voxel};
+use sol_grid::{vox, Grid, Voxel};
+
+use std::fs::write;
 
 fn main() {
     // Grid orientation
@@ -10,6 +12,7 @@ fn main() {
     let grid_height = 3; // z bound
     let mut grid = Grid::new(grid_width, grid_depth, grid_height);
 
+    println!("Building example {:?} Grid<Voxel>", (grid_width, grid_depth, grid_height));
     // Voxels can be created from rgba values
     let black = [0, 0, 0, 255];
     let white = [255, 255, 255, 255];
@@ -44,4 +47,7 @@ fn main() {
             }
         }
     }
+    // Supports encoding a Grid<Voxel> as MagicaVoxel .vox format
+    let bytes = vox::encode(grid).unwrap();
+    write("my_model.vox", &bytes).unwrap();
 }
