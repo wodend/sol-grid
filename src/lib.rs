@@ -370,4 +370,24 @@ mod tests {
         let bytes = vox::encode(grid).unwrap();
         fs::write("test.vox", &bytes).unwrap();
     }
+
+    #[test]
+    fn test_vox_write_transparent_voxel() {
+        let grid_width = 3;
+        let grid_depth = 3;
+        let grid_height = 3;
+        let mut grid = Grid::new(grid_width, grid_depth, grid_height);
+
+        let blue = [0, 0, 255, 0];
+        let voxel = Voxel::from_rgba(&blue);
+        for x in 0..grid_width {
+            for y in 0..grid_depth {
+                for z in 0..grid_height {
+                    *grid.get_mut(x, y, z) = voxel;
+                }
+            }
+        }
+        let bytes = vox::encode(grid).unwrap();
+        fs::write("test_transparent.vox", &bytes).unwrap();
+    }
 }

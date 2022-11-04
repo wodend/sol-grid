@@ -4,6 +4,30 @@ use std::collections::HashMap;
 use std::io::Write;
 
 pub fn encode(grid: Grid<Voxel>) -> std::io::Result<Vec<u8>> {
+    // Calculate vox data
+    let mut color_indices = HashMap::new();
+    let mut index = 1;
+    let mut xyzis = Vec::new();
+    for (x, y, z, v) in grid.enumerate_cells() {
+        let mut xyzi = [0; 4];
+        xyzi[0] = x as u8;
+        xyzi[1] = y as u8;
+        xyzi[2] = z as u8;
+        let rgba = v.as_rgba();
+        match color_indices.get(rgba) {
+            None => {
+                color_indices.insert(rgba, index);
+                xyzi[3] = index;
+                index += 1;
+            },
+            Some(i) => {
+                xyzi[3] = *i as u8;
+            },
+        }
+        if rgba[3] > 0 {
+            xyzis.push(xyzi);
+        }
+    }
     // Vox spec: https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox.txt
     let mut bytes = Vec::new();
     bytes.write(b"VOX ")?;
@@ -13,7 +37,7 @@ pub fn encode(grid: Grid<Voxel>) -> std::io::Result<Vec<u8>> {
     const ZERO: [u8; 4] = [0; 4];
     let size_chunk_size = INT_SIZE * 3;
     // TODO: Handle cases where voxel count exeeds u32 bounds
-    let voxel_count = grid.cell_count() as u32;
+    let voxel_count = xyzis.len() as u32;
     let xyzi_chunk_size = INT_SIZE + (voxel_count * INT_SIZE);
     const PALETTE_COUNT: u32 = 256;
     let rgba_chunk_size = PALETTE_COUNT * INT_SIZE;
@@ -38,26 +62,9 @@ pub fn encode(grid: Grid<Voxel>) -> std::io::Result<Vec<u8>> {
     bytes.write(&u32::to_le_bytes(xyzi_chunk_size))?;
     bytes.write(&ZERO)?; // XYZI has no children
     bytes.write(&u32::to_le_bytes(voxel_count))?;
-    let mut index = 1;
-    let mut color_indices = HashMap::new();
-    let mut xyzi = [0; 4];
     // TODO: Handle cases where xyzi exceeds u8 bounds
-    for (x, y, z, v) in grid.enumerate_cells() {
-        xyzi[0] = x as u8;
-        xyzi[1] = y as u8;
-        xyzi[2] = z as u8;
-        let rgba = v.as_rgba();
-        match color_indices.get(rgba) {
-            None => {
-                color_indices.insert(rgba, index);
-                xyzi[3] = index;
-                index += 1;
-            },
-            Some(i) => {
-                xyzi[3] = *i as u8;
-            },
-        }
-        bytes.write(&xyzi)?;
+    for xyzi in &xyzis {
+        bytes.write(xyzi)?;
     }
 
     bytes.write(b"RGBA")?;
