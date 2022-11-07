@@ -48,6 +48,6 @@ fn main() {
         }
     }
     // Supports encoding a Grid<Voxel> as MagicaVoxel .vox format
-    let bytes = vox::encode(grid).unwrap();
+    let bytes = vox::encode(&grid).unwrap();
     write("my_model.vox", &bytes).unwrap();
 }

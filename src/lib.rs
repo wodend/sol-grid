@@ -2,7 +2,7 @@ pub mod vox;
 
 use std::marker::PhantomData;
 use std::ops::Range;
-use std::slice::ChunksExact;
+use std::slice::{ChunksExact, ChunksExactMut};
 
 pub trait Codec {
     const SIZE: u8;
@@ -166,6 +166,21 @@ where
         }
     }
 
+    pub fn enumerate_cells_mut(&mut self) -> EnumerateCellsMut<T> {
+        EnumerateCellsMut {
+            chunks: self
+                .data
+                .chunks_exact_mut(<T>::SIZE as usize),
+            x: 0,
+            y: 0,
+            z: 0,
+            width: self.width,
+            depth: self.depth,
+            _phantom: PhantomData,
+        }
+    }
+
+
     pub fn cell_count(&self) -> usize {
         self.width as usize * self.depth as usize * self.height as usize
     }
@@ -238,6 +253,39 @@ where
         let (x, y, z) = (self.x, self.y, self.z);
         self.x += 1;
         self.chunks.next().map(|t| (x, y, z, <T>::from_slice(t)))
+    }
+}
+
+
+pub struct EnumerateCellsMut<'a, T> {
+    chunks: ChunksExactMut<'a, u8>,
+    x: u32,
+    y: u32,
+    z: u32,
+    width: u32,
+    depth: u32,
+    _phantom: PhantomData<T>,
+}
+
+impl<'a, T> Iterator for EnumerateCellsMut<'a, T>
+where
+    T: Codec + 'a,
+{
+    type Item = (u32, u32, u32, &'a mut T);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.x >= self.width {
+            self.x = 0;
+            self.y += 1;
+        }
+        if self.y >= self.depth {
+            self.y = 0;
+            self.z += 1;
+        }
+        let (x, y, z) = (self.x, self.y, self.z);
+        self.x += 1;
+        self.chunks.next().map(|t| (x, y, z, <T>::from_slice_mut(t)))
     }
 }
 
@@ -412,7 +460,7 @@ mod tests {
                 }
             }
         }
-        let bytes = vox::encode(grid).unwrap();
+        let bytes = vox::encode(&grid).unwrap();
         fs::write("test.vox", &bytes).unwrap();
     }
 
@@ -432,7 +480,7 @@ mod tests {
                 }
             }
         }
-        let bytes = vox::encode(grid).unwrap();
+        let bytes = vox::encode(&grid).unwrap();
         fs::write("test_transparent.vox", &bytes).unwrap();
     }
 
@@ -464,7 +512,7 @@ mod tests {
     fn test_voxel_rotated_z_0() {
         let grid = gen_test_road_edge();
         let rotated = grid.rotated_z(Rotation::R0);
-        let bytes = vox::encode(rotated).unwrap();
+        let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_0.vox", &bytes).unwrap();
     }
 
@@ -472,7 +520,7 @@ mod tests {
     fn test_voxel_rotated_z_90() {
         let grid = gen_test_road_edge();
         let rotated = grid.rotated_z(Rotation::R90);
-        let bytes = vox::encode(rotated).unwrap();
+        let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_90.vox", &bytes).unwrap();
     }
 
@@ -480,7 +528,7 @@ mod tests {
     fn test_voxel_rotated_z_180() {
         let grid = gen_test_road_edge();
         let rotated = grid.rotated_z(Rotation::R180);
-        let bytes = vox::encode(rotated).unwrap();
+        let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_180.vox", &bytes).unwrap();
     }
 
@@ -488,7 +536,7 @@ mod tests {
     fn test_voxel_rotated_z_270() {
         let grid = gen_test_road_edge();
         let rotated = grid.rotated_z(Rotation::R270);
-        let bytes = vox::encode(rotated).unwrap();
+        let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_270.vox", &bytes).unwrap();
     }
 }

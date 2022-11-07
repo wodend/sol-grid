@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use std::io::Write;
 
-pub fn encode(grid: Grid<Voxel>) -> std::io::Result<Vec<u8>> {
+pub fn encode(grid: &Grid<Voxel>) -> std::io::Result<Vec<u8>> {
     // Calculate vox data
     let mut color_indices = HashMap::new();
     let mut index = 1;
