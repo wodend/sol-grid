@@ -63,6 +63,13 @@ impl Codec for u32 {
     }
 }
 
+pub enum Rotation {
+    R0,
+    R90,
+    R180,
+    R270,
+}
+
 pub struct Grid<T> {
     width: u32,
     depth: u32,
@@ -72,7 +79,7 @@ pub struct Grid<T> {
 }
 impl<T> Grid<T>
 where
-    T: Codec,
+    T: Codec + Copy,
 {
     pub fn new(width: u32, depth: u32, height: u32) -> Grid<T> {
         match Self::len(width, depth, height) {
@@ -161,6 +168,44 @@ where
 
     pub fn cell_count(&self) -> usize {
         self.width as usize * self.depth as usize * self.height as usize
+    }
+
+    pub fn rotated_z(&self, rotation: Rotation) -> Grid<T> {
+        let width = self.width();
+        let depth = self.depth();
+        let height = self.height();
+        // TODO: Figure out how to do it for rectangular prisms
+        assert!(width == depth && width == height);
+        let mut output = Grid::new(width, depth, height);
+        let r = match rotation {
+            Rotation::R0 => [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            Rotation::R90 => [[0, -1, 0], [1, 0, 0], [0, 0, 1]],
+            Rotation::R180 => [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],
+            Rotation::R270 => [[0, 1, 0], [-1, 0, 0], [0, 0, 1]],
+        };
+        let x_offset = width as i64 / 2;
+        let y_offset = depth as i64 / 2;
+        let z_offset = height as i64 / 2;
+        let x_even_correction = match rotation {
+            Rotation::R90 | Rotation::R180 =>  if width % 2 == 0 { 1 } else { 0 }
+            _ => if depth > width { 1 } else { 0 },
+        };
+        let y_even_correction = match rotation {
+            Rotation::R180 | Rotation::R270 =>  if depth % 2 == 0 { 1 } else { 0 }
+            _ => 0,
+        };
+        println!("{} {} {}", x_offset, y_offset, z_offset);
+        for (gx, gy, gz, t) in self.enumerate_cells() {
+            let x = gx as i64 - x_offset;
+            let y = gy as i64 - y_offset;
+            let z = gz as i64 - z_offset;
+            println!("{} {} {}", x, y, z);
+            let rx = r[0][0] * x + r[0][1] * y + r[0][2] * z + x_offset - x_even_correction;
+            let ry = r[1][0] * x + r[1][1] * y + r[1][2] * z + y_offset - y_even_correction;
+            let rz = r[2][0] * x + r[2][1] * y + r[2][2] * z + z_offset;
+            *output.get_mut(rx as u32, ry as u32, rz as u32) = *t;
+        }
+        output
     }
 }
 
@@ -389,5 +434,61 @@ mod tests {
         }
         let bytes = vox::encode(grid).unwrap();
         fs::write("test_transparent.vox", &bytes).unwrap();
+    }
+
+    fn gen_test_road_edge() -> Grid<Voxel> {
+        let width = 3;
+        let depth = 3;
+        let height = 3;
+        let mut grid = Grid::new(width, depth, height);
+        let grey = Voxel::from_rgba(&[108, 108, 127, 255]);
+        let green = Voxel::from_rgba(&[90, 120, 20, 255]);
+        let brown = Voxel::from_rgba(&[120, 80, 50, 255]);
+        for x in 0..width {
+            for y in 0..depth {
+                for z in 0..height {
+                    if z == height - 1 && x <= width / 2 {
+                        *grid.get_mut(x, y, z) = grey;
+                    } else if z == height - 1 {
+                        *grid.get_mut(x, y, z) = green;
+                    } else {
+                        *grid.get_mut(x, y, z) = brown;
+                    }
+                }
+            }
+        }
+        grid
+    }
+
+    #[test]
+    fn test_voxel_rotated_z_0() {
+        let grid = gen_test_road_edge();
+        let rotated = grid.rotated_z(Rotation::R0);
+        let bytes = vox::encode(rotated).unwrap();
+        fs::write("test_road_rotated_z_0.vox", &bytes).unwrap();
+    }
+
+    #[test]
+    fn test_voxel_rotated_z_90() {
+        let grid = gen_test_road_edge();
+        let rotated = grid.rotated_z(Rotation::R90);
+        let bytes = vox::encode(rotated).unwrap();
+        fs::write("test_road_rotated_z_90.vox", &bytes).unwrap();
+    }
+
+    #[test]
+    fn test_voxel_rotated_z_180() {
+        let grid = gen_test_road_edge();
+        let rotated = grid.rotated_z(Rotation::R180);
+        let bytes = vox::encode(rotated).unwrap();
+        fs::write("test_road_rotated_z_180.vox", &bytes).unwrap();
+    }
+
+    #[test]
+    fn test_voxel_rotated_z_270() {
+        let grid = gen_test_road_edge();
+        let rotated = grid.rotated_z(Rotation::R270);
+        let bytes = vox::encode(rotated).unwrap();
+        fs::write("test_road_rotated_z_270.vox", &bytes).unwrap();
     }
 }
