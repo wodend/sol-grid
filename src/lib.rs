@@ -13,11 +13,11 @@ pub trait Codec {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Voxel([u8; 16]);
+pub struct Voxel([u8; 8]);
 
 impl Voxel {
     pub fn from_rgba(rgba: &[u8]) -> Voxel {
-        *<Voxel>::from_slice(&[rgba, &[0; 12]].concat()[..])
+        *<Voxel>::from_slice(&[rgba, &[0; 4]].concat()[..])
     }
 
     pub fn as_rgba(&self) -> &[u8] {
@@ -26,7 +26,7 @@ impl Voxel {
 }
 
 impl Codec for Voxel {
-    const SIZE: u8 = 16;
+    const SIZE: u8 = 8;
 
     #[inline(always)]
     fn as_slice(&self) -> &[u8] {
@@ -63,6 +63,7 @@ impl Codec for u32 {
     }
 }
 
+#[derive(Debug)]
 pub enum Rotation {
     R0,
     R90,
@@ -185,7 +186,7 @@ where
         self.width as usize * self.depth as usize * self.height as usize
     }
 
-    pub fn rotated_z(&self, rotation: Rotation) -> Grid<T> {
+    pub fn rotated_z(&self, rotation: &Rotation) -> Grid<T> {
         let width = self.width();
         let depth = self.depth();
         let height = self.height();
@@ -209,12 +210,10 @@ where
             Rotation::R180 | Rotation::R270 =>  if depth % 2 == 0 { 1 } else { 0 }
             _ => 0,
         };
-        println!("{} {} {}", x_offset, y_offset, z_offset);
         for (gx, gy, gz, t) in self.enumerate_cells() {
             let x = gx as i64 - x_offset;
             let y = gy as i64 - y_offset;
             let z = gz as i64 - z_offset;
-            println!("{} {} {}", x, y, z);
             let rx = r[0][0] * x + r[0][1] * y + r[0][2] * z + x_offset - x_even_correction;
             let ry = r[1][0] * x + r[1][1] * y + r[1][2] * z + y_offset - y_even_correction;
             let rz = r[2][0] * x + r[2][1] * y + r[2][2] * z + z_offset;
@@ -295,6 +294,10 @@ mod tests {
     use super::*;
     use std::fs;
 
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const RED_SLICE: [u8; 8] = [255, 0, 0, 255, 0, 0, 0, 0];
+    const RED_VOXEL: Voxel = Voxel(RED_SLICE);
+
     #[test]
     fn test_u32_as_slice() {
         let value = 1.as_slice();
@@ -320,37 +323,31 @@ mod tests {
 
     #[test]
     fn test_voxel_as_rgba() {
-        let voxel_red = Voxel([255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(voxel_red.as_rgba(), [255, 0, 0, 255]);
+        assert_eq!(RED_VOXEL.as_rgba(), RED);
     }
 
     #[test]
     fn test_voxel_from_rgba() {
-        let red = [255, 0, 0, 255];
-        let value = Voxel::from_rgba(&red);
-        assert_eq!(value, Voxel([255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(Voxel::from_rgba(&RED), RED_VOXEL);
     }
 
     #[test]
     fn test_voxel_as_slice() {
-        let array = [255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let voxel = Voxel(array);
-        assert_eq!(voxel.as_slice(), array);
+        assert_eq!(RED_VOXEL.as_slice(), RED_SLICE);
     }
 
     #[test]
     fn test_voxel_from_slice() {
-        let array = [255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let voxel = <Voxel>::from_slice(&array);
-        assert_eq!(*voxel, Voxel([255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(*<Voxel>::from_slice(&RED_SLICE), RED_VOXEL);
     }
 
     #[test]
     fn test_voxel_from_slice_mut() {
-        let mut array = [255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut array = [0u8; 8];
+        array.copy_from_slice(&RED_SLICE);
         let voxel = <Voxel>::from_slice_mut(&mut array);
         voxel.0[1] = 255;
-        assert_eq!(*voxel, Voxel([255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(*voxel, Voxel([255, 255, 0, 255, 0, 0, 0, 0]));
     }
 
     #[test]
@@ -511,7 +508,7 @@ mod tests {
     #[test]
     fn test_voxel_rotated_z_0() {
         let grid = gen_test_road_edge();
-        let rotated = grid.rotated_z(Rotation::R0);
+        let rotated = grid.rotated_z(&Rotation::R0);
         let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_0.vox", &bytes).unwrap();
     }
@@ -519,7 +516,7 @@ mod tests {
     #[test]
     fn test_voxel_rotated_z_90() {
         let grid = gen_test_road_edge();
-        let rotated = grid.rotated_z(Rotation::R90);
+        let rotated = grid.rotated_z(&Rotation::R90);
         let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_90.vox", &bytes).unwrap();
     }
@@ -527,7 +524,7 @@ mod tests {
     #[test]
     fn test_voxel_rotated_z_180() {
         let grid = gen_test_road_edge();
-        let rotated = grid.rotated_z(Rotation::R180);
+        let rotated = grid.rotated_z(&Rotation::R180);
         let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_180.vox", &bytes).unwrap();
     }
@@ -535,7 +532,7 @@ mod tests {
     #[test]
     fn test_voxel_rotated_z_270() {
         let grid = gen_test_road_edge();
-        let rotated = grid.rotated_z(Rotation::R270);
+        let rotated = grid.rotated_z(&Rotation::R270);
         let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_270.vox", &bytes).unwrap();
     }
