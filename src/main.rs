@@ -4,9 +4,9 @@ use std::fs::write;
 
 fn main() {
     // Grid orientation
-    // Increasing x moves right
-    // Increasing y moves away 
-    // Increasing z moves up
+    // Increasing x moves east, decreasing west
+    // Increasing y moves north, decreasing south
+    // Increasing z moves up, decreasing down
     let grid_width = 3; // x bound
     let grid_depth = 3; // y bound
     let grid_height = 3; // z bound

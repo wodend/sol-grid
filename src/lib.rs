@@ -63,6 +63,26 @@ impl Codec for u32 {
     }
 }
 
+impl Codec for i32 {
+    const SIZE: u8 = (i32::BITS / 8) as u8;
+
+    #[inline(always)]
+    fn as_slice(&self) -> &[u8] {
+        unsafe { std::mem::transmute::<&i32, &[u8; Self::SIZE as usize]>(self) }
+    }
+
+    fn from_slice(slice: &[u8]) -> &i32 {
+        assert_eq!(slice.len(), Self::SIZE as usize);
+        unsafe { &*(slice.as_ptr() as *const i32) }
+    }
+
+    fn from_slice_mut(slice: &mut [u8]) -> &mut i32 {
+        assert_eq!(slice.len(), Self::SIZE as usize);
+        unsafe { &mut *(slice.as_mut_ptr() as *mut i32) }
+    }
+}
+
+
 #[derive(Debug)]
 pub enum Rotation {
     R0,
@@ -138,18 +158,80 @@ where
         }
     }
 
-    #[inline(always)]
-    fn indices(&self, x: u32, y: u32, z: u32) -> Option<Range<usize>> {
-        if x >= self.width || y >= self.depth || z >= self.height {
-            return None;
+    pub fn get_id(&self, id: usize) -> &T {
+        match self.indices_id(id) {
+            None => panic!(
+                "Grid id {:?} out of bounds {:?}",
+                id,
+                self.width * self.depth * self.height
+            ),
+            Some(indices) => <T>::from_slice(&self.data[indices]),
         }
-        Some(self.indices_unchecked(x, y, z))
+    }
+
+    pub fn get_id_mut(&mut self, id: usize) -> &mut T {
+        match self.indices_id(id) {
+            None => panic!(
+                "Grid id {:?} out of bounds {:?}",
+                id,
+                self.width * self.depth * self.height
+            ),
+            Some(indices) => <T>::from_slice_mut(&mut self.data[indices]),
+        }
     }
 
     #[inline(always)]
-    fn indices_unchecked(&self, x: u32, y: u32, z: u32) -> Range<usize> {
-        let unsized_index = x + (y * self.width) + (z * self.width * self.depth);
-        let min_index = unsized_index as usize * <T>::SIZE as usize;
+    pub fn id(&self, x: u32, y: u32, z: u32) -> Option<usize> {
+        if x >= self.width || y >= self.depth || z >= self.height {
+            return None;
+        }
+        Some(self.id_unchecked(x, y, z))
+    }
+
+    #[inline(always)]
+    fn id_unchecked(&self, x: u32, y: u32, z: u32) -> usize {
+        x as usize
+        + (y as usize * self.width as usize)
+        + (z as usize * self.width as usize * self.depth as usize)
+    }
+
+    #[inline(always)]
+    pub fn coordinate(&self, id: usize) -> Option<(u32, u32, u32)> {
+        if id >= self.width as usize * self.depth as usize * self.height as usize {
+            return None;
+        }
+        Some(self.coordinate_unchecked(id))
+    }
+
+    #[inline(always)]
+    fn coordinate_unchecked(&self, id: usize) -> (u32, u32, u32) {
+        let z = id / (self.width as usize * self.depth as usize);
+        let plane = id - (z * self.width as usize * self.depth as usize);
+        let y = plane / self.width as usize;
+        let x = plane % self.width as usize;
+        (x as u32, y as u32, z as u32)
+    }
+
+    #[inline(always)]
+    fn indices(&self, x: u32, y: u32, z: u32) -> Option<Range<usize>> {
+        let id = self.id(x, y, z);
+        match id {
+            None => None,
+            Some(id) => Some(self.indices_unchecked(id)),
+        }
+    }
+
+    #[inline(always)]
+    fn indices_id(&self, id: usize) -> Option<Range<usize>> {
+        if id >= (self.width * self.depth * self.height) as usize {
+            return None;
+        }
+        Some(self.indices_unchecked(id))
+    }
+
+    #[inline(always)]
+    fn indices_unchecked(&self, unsized_index: usize) -> Range<usize> {
+        let min_index = unsized_index * <T>::SIZE as usize;
         min_index..min_index + <T>::SIZE as usize
     }
 
@@ -428,6 +510,30 @@ mod tests {
     }
 
     #[test]
+    fn test_grid_enumerate_cells_with_ids() {
+        let grid_width = 3;
+        let grid_depth = 3; 
+        let grid_height = 3;
+        let mut grid = Grid::new(grid_width, grid_depth, grid_height);
+        for x in 0..grid_width {
+            for y in 0..grid_depth {
+                for z in 0..grid_height {
+                    let color = [x as u8, y as u8, z as u8, 255];
+                    let voxel = Voxel::from_rgba(&color);
+                    *grid.get_mut(x, y, z) = voxel;
+                }
+            }
+        }
+        for (id, (x, y, z, v))in grid.enumerate_cells().enumerate() {
+            let rgba = v.as_rgba();
+            println!("{:?} {:?}", id, rgba);
+            assert_eq!(x as u8, rgba[0]);
+            assert_eq!(y as u8, rgba[1]);
+            assert_eq!(z as u8, rgba[2]);
+        }
+    }
+
+    #[test]
     fn test_grid_cell_count() {
         let grid_width = 3;
         let grid_depth = 3; 
@@ -535,5 +641,28 @@ mod tests {
         let rotated = grid.rotated_z(&Rotation::R270);
         let bytes = vox::encode(&rotated).unwrap();
         fs::write("test_road_rotated_z_270.vox", &bytes).unwrap();
+    }
+
+    #[test]
+    fn test_grid_get_id() {
+        let grid_width = 3;
+        let grid_depth = 3; 
+        let grid_height = 3;
+        let mut grid = Grid::new(grid_width, grid_depth, grid_height);
+        for x in 0..grid_width {
+            for y in 0..grid_depth {
+                for z in 0..grid_height {
+                    let color = [x as u8, y as u8, z as u8, 255];
+                    let voxel = Voxel::from_rgba(&color);
+                    *grid.get_mut(x, y, z) = voxel;
+                }
+            }
+        }
+        assert_eq!(*grid.get_id(0).as_rgba(), [0, 0, 0, 255]);
+        assert_eq!(*grid.get_id(26).as_rgba(), [2, 2, 2, 255]);
+        let color = [1, 2, 3, 4];
+        let voxel = Voxel::from_rgba(&color);
+        *grid.get_id_mut(0) = voxel;
+        assert_eq!(*grid.get_id_mut(0).as_rgba(), color);
     }
 }
